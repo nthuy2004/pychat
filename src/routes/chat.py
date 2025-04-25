@@ -1,0 +1,19 @@
+from flask import Flask, Blueprint
+
+from controllers.chat import get_all_chat, create_group, create_private, delete_chat, leave_chat, get_all_messages, join_group
+from controllers.message import send_message, edit_message, delete_message
+def reg_bp():
+    bp = Blueprint("chat_api", __name__, url_prefix="/chat")
+
+    bp.add_url_rule("/", view_func=get_all_chat, methods=["GET"])
+    bp.add_url_rule("/group", view_func=create_group, methods=["POST"])
+    bp.add_url_rule("/private", view_func=create_private, methods=["POST"])
+    bp.add_url_rule("/<int:chat_id>/join", view_func=join_group, methods=["POST"])
+    bp.add_url_rule("/<int:chat_id>/delete", view_func=delete_chat, methods=["POST"])
+    bp.add_url_rule("/<int:chat_id>/leave", view_func=leave_chat, methods=["POST"])
+    bp.add_url_rule("/<int:chat_id>/messages", view_func=get_all_messages, methods=["GET"])
+    bp.add_url_rule("/<int:chat_id>/messages", view_func=send_message, methods=["POST"])
+
+    bp.add_url_rule("/<int:chat_id>/messages/<int:message_id>", view_func=edit_message, methods=["PATCH"])
+    bp.add_url_rule("/<int:chat_id>/messages/<int:message_id>", view_func=delete_message, methods=["DELETE"])
+    return bp
