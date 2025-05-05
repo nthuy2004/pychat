@@ -12,6 +12,7 @@ import math
 
 SNOWFLAKE_CHAT = 1
 SNOWFLAKE_MESSAGE = 2
+SNOWFLAKE_ATTACHMENT = 3
 
 
 def timestamp():
@@ -66,6 +67,7 @@ def require_login(f):
                 "data": error.errors(include_context=False, include_input=False, include_url=False)
             }), 400
         except Exception as e:
+            raise e
             return jsonify({"error_code": "error", "message": str(e)}), 400
 
     return wrapper
@@ -84,7 +86,7 @@ def get_user_from_jwt():
     dec = g.get('_nth_decoded_jwt_payload', None)
     if dec is None:
         raise RuntimeError(
-            "Call require_login before using this func"
+            "Call require_login before using this func"     # good trick
         )
     return dec
 
@@ -135,6 +137,10 @@ def generate_chatid():
 
 def generate_messageid():
     msg = SnowflakeGenerator(type_code=SNOWFLAKE_MESSAGE)
+    return msg.generate_id()
+
+def generate_attachmentid():
+    msg = SnowflakeGenerator(type_code=SNOWFLAKE_ATTACHMENT)
     return msg.generate_id()
 
 

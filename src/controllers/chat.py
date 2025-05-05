@@ -4,10 +4,30 @@ from sqlalchemy import text
 
 from models.chat import ChatRelationship, Chat
 from models.user import User
-from extensions import db
+from extensions import db, cache
 from models.chat import CHAT_1V1, CHAT_GROUP, ChatRole
 
 from pydantic import BaseModel, Field
+
+from sqlalchemy.orm import aliased
+from sqlalchemy import select, and_, desc
+
+from models.message import Message, get_message_by_id, get_attachment_by_msgid
+from models.user import User, get_user_by_id
+
+def get_message(chat_id, message_id):
+    m = get_message_by_id(chat_id, message_id)
+    if m is None:
+        return None
+
+    u = get_user_by_id(m['uid'])
+
+    if u:
+        m["user"] = u
+
+    m['attachments'] = get_attachment_by_msgid(message_id)
+
+    return m
 
 def get_or_create_private_chat_raw(user_a_id: int, user_b_id: int):
     with db.engine.begin() as conn:
@@ -87,8 +107,8 @@ def create_group():
             recips.append(u.to_json())
 
     return jsonify({
-        "id": chat.id,
-        "chat_id": chat.id,
+        "id": str(chat.id),
+        "chat_id": str(chat.id),
         "name": chat.name,
         "owner": uid,
         "type": chat.type,
@@ -98,7 +118,7 @@ def create_group():
 
 
 class CreatePrivateRequest(BaseModel):
-    recipient: int
+    recipient: str
 
 @handle_exceptions
 @require_login
@@ -106,12 +126,12 @@ def create_private():
     uid = get_user_from_jwt()["id"]
     data = CreatePrivateRequest(**request.json).model_dump()
 
-    chat_id = get_or_create_private_chat_raw(uid, data["recipient"])
+    chat_id = get_or_create_private_chat_raw(uid, int(data["recipient"]))
 
     user = get_1v1_recipient(chat_id)
 
     return jsonify({
-        "id": chat_id,
+        "id": str(chat_id),
         "name": user.get_display_name(),
         "owner": None,
         "type": CHAT_1V1,
@@ -125,9 +145,15 @@ def get_all_chat():
 
     with db.engine.begin() as conn:
         sql = text("""
-            SELECT cr.chat_id, cr.role, c.type, c.owner, c.name, c.avatar
+            SELECT cr.chat_id, cr.role, c.type, c.owner, c.name, c.avatar, m.id as last_message_id, m.chat_id as last_chat_id
             FROM chat_relationship cr
             JOIN chat c ON c.id = cr.chat_id
+            LEFT JOIN (
+                SELECT chat_id, MAX(id) AS max_id
+                FROM messages
+                GROUP BY chat_id
+            ) latest ON latest.chat_id = cr.chat_id
+            LEFT JOIN messages m ON m.chat_id = latest.chat_id AND m.id = latest.max_id
             WHERE cr.uid = :id
         """)
 
@@ -136,19 +162,26 @@ def get_all_chat():
         results_as_dict = [u._asdict() for u in result]
 
         for x in results_as_dict:
+            x["chat_id"] = str(x["chat_id"])    # cast to str bcz js browser can't handle bigint automatically
             if x["type"] == CHAT_1V1:
                 recipient = get_1v1_recipient(x["chat_id"])
                 x["recipient"] = recipient.to_json()
+            if x["last_message_id"] and x["last_chat_id"]:
+                x["last_message"] = get_message(x["last_chat_id"], x["last_message_id"])
+                x["last_message_id"] = str(x["last_message_id"])
+                x["last_chat_id"] = str(x["last_chat_id"])
+            else:
+                x["last_message"] = None
 
         return jsonify(results_as_dict), 200
 
     return ""
 
 
-def delete_from_chatid(id):
+def delete_from_chatid(chat_id):
     with db.engine.begin() as conn:
-        conn.execute(text("DELETE FROM `chat_relationship` WHERE `chat_id` = :chat_id"), {"chat_id": id})
-        conn.execute(text("DELETE FROM `chat` WHERE `id` = :chat_id"), {"chat_id": id})
+        conn.execute(text("DELETE FROM `chat_relationship` WHERE `chat_id` = :chat_id"), {"chat_id": chat_id})
+        conn.execute(text("DELETE FROM `chat` WHERE `id` = :chat_id"), {"chat_id": chat_id})
 
 @require_login
 def delete_chat(chat_id):
@@ -271,6 +304,73 @@ class GetAllMessagesRequest(BaseModel):
 
 @require_login
 def get_all_messages(chat_id):
+    uid = get_user_from_jwt()["id"]
+
     cond_data = GetAllMessagesRequest(**request.args).model_dump()
 
-    return jsonify(cond_data)
+    check = ChatRelationship.get(chat_id=chat_id, uid=uid)
+
+    if check is None:
+        return jsonify({"error_code": "perm_denied", "message": "Join chưa mà xem ?"}), 403
+    
+    if check.role < ChatRole.ROLE_NORMAL:
+        return jsonify({"error_code": "perm_denied", "message": "Permission denied!"}), 403
+
+    stmt = select(
+        Message,
+        User
+    ).join(User, User.id == Message.uid).where(
+        Message.chat_id == chat_id
+    )
+
+    if cond_data['before']:
+        stmt = stmt.where(Message.id < cond_data['before'])
+    if cond_data['after']:
+        stmt = stmt.where(Message.id > cond_data['after'])
+
+    stmt = stmt.order_by(desc(Message.id)).limit(cond_data['limit'])
+
+    results = db.session.execute(stmt).all()
+
+    messages = []
+    for row in results:
+        msg, user = row
+
+        mdata = msg.to_json()
+
+        v = cache.get(f"msg:{msg.chat_id}:{msg.id}")
+        if v is None:
+            cache.set(f"msg:{msg.chat_id}:{msg.id}", mdata)
+
+        mdata["user"] = user.to_json()
+        if msg.ref_chatid and msg.ref_messageid:
+            ref_msg = get_message(msg.ref_chatid, msg.ref_messageid)
+            if ref_msg:
+                mdata["ref_message"] = ref_msg
+        mdata["attachments"] = get_attachment_by_msgid(msg.id)
+        messages.append(mdata)
+
+    return jsonify(messages), 200
+
+
+def upload_attachments(chat_id):
+    from controllers.attachment import upload
+    return upload()
+
+def delete_attachments(chat_id, file_id):
+    from controllers.attachment import remove
+    return remove(file_id)
+
+@require_login
+def get_chat_members(chat_id: int):
+    uid = get_user_from_jwt()["id"]
+    members = (
+        db.session.query(User)
+        .join(ChatRelationship, User.id == ChatRelationship.uid)
+        .filter(ChatRelationship.chat_id == chat_id,
+                ChatRelationship.role > ChatRole.ROLE_PENDING,
+                ChatRelationship.uid != uid
+                )
+        .all()
+    )
+    return members

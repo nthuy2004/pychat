@@ -32,4 +32,3 @@ class Chat(Model):
     avatar: Mapped[str] = mapped_column(default=None)
     rate_limit: Mapped[int] = mapped_column(default=0)
     pending_join: Mapped[bool] = mapped_column(default=False)
-

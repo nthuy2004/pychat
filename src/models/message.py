@@ -3,6 +3,10 @@ from database import Model
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import ForeignKey
 
+from utils import snowflake_to_timestamp
+from storage import get_url
+
+from extensions import cache
 class MessageType:
     NORMAL = 0
     POLL = 1
@@ -12,8 +16,18 @@ class MessageAttachment(Model):
     __tablename__ = "message_attachments"
     id: Mapped[int] = mapped_column(primary_key=True)
     message_id: Mapped[int]
-    content_type: Mapped[str]
-    url: Mapped[str]
+    mimetype: Mapped[str]
+    original_filename: Mapped[str]
+    upload_filename: Mapped[str]
+    def to_json(self):
+        return {
+            "id": str(self.id),
+            "message_id": str(self.message_id),       # conv to str bcz js browser can't handle bigint automatically
+            "mimetype": self.mimetype,
+            "original_filename": self.original_filename,
+            "upload_filename": self.upload_filename,
+            "upload_url": get_url(self.upload_filename),
+        }
 
 class Message(Model):
     __tablename__ = "messages"
@@ -31,14 +45,42 @@ class Message(Model):
 
     def to_json(self):
         return {
-            "id": self.id,
-            "chat_id": self.chat_id,
-            "uid": self.uid,
+            "id": str(self.id),
+            "chat_id": str(self.chat_id),       # conv to str bcz js browser can't handle bigint automatically
+            "uid": str(self.uid),
             "type": self.type,
             "content": self.content,
             "edited_time": self.edited_time,
+            "created_time": snowflake_to_timestamp(self.id),
             "mention_everyone": self.mention_everyone,
-            "ref_chatid": self.ref_chatid,
-            "ref_messageid": self.ref_messageid,
+            "ref_chatid": str(self.ref_chatid) if self.ref_chatid else "",
+            "ref_messageid": str(self.ref_messageid) if self.ref_messageid else "",
             "pinned": self.pinned,
         }
+
+
+def get_message_by_id(chat_id: int, message_id: int):
+    key = f"msg:{chat_id}:{message_id}"
+    v = cache.get(key)
+    if v is None:
+        msg = Message.get(id=message_id, chat_id=chat_id)
+        if msg is not None:
+            v = msg.to_json()
+            cache.set(key, v)
+        else:
+            return None
+    return v
+
+def get_attachment_by_msgid(message_id: int):
+    #msg = MessageAttachment.get_all(message_id=message_id)
+
+    cache_key = f"attach:{message_id}"
+    v = cache.get(cache_key)
+    if v is None:
+        msg = MessageAttachment.get_all(message_id=message_id)
+        if msg is not None:
+            v = [m.to_json() for m in msg.all()]
+            cache.set(cache_key, v)
+        else:
+            return []
+    return v

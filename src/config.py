@@ -1,5 +1,6 @@
 import os
-
+from dotenv import load_dotenv
+load_dotenv()
 class DBConfig:
     db_type = os.getenv("DB_TYPE", "mysql")
     user = os.getenv("DB_USER", "root")
@@ -28,6 +29,7 @@ class Config:
     OSS_ACCESS_KEY_ID = os.getenv("OSS_ACCESS_KEY_ID", "")
     OSS_ACCESS_KEY_SECRET = os.getenv("OSS_ACCESS_KEY_SECRET", "")
     OSS_ENDPOINT = os.getenv("OSS_ENDPOINT", "")
+    OSS_REGION = os.getenv("OSS_REGION", "")
     OSS_BUCKET_NAME = os.getenv("OSS_BUCKET_NAME", "")
 
     CORS_HEADERS = "Content-Type"

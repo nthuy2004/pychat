@@ -6,6 +6,12 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from extensions import bcrypt
 from utils import jwt_encode
+
+from database.redis import cache
+
+
+from extensions import cache
+
 class User(Model):
     __tablename__ = "users"
     id : Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -29,7 +35,7 @@ class User(Model):
 
     def to_json(self):
         return {
-            'id'         : self.id,
+            'id'         : str(self.id),
             'username'   : self.username,
             'display_name'  : self.display_name,
             'avatar'     : self.avatar,
@@ -38,3 +44,15 @@ class User(Model):
             'color'     : self.color,
             'created_at': self.created_at,
        }
+
+
+def get_user_by_id(user_id: int):
+    v = cache.get(f"user:{user_id}")
+    if v is None:
+        user = User.get(id=user_id)
+        if user is not None:
+            v = user.to_json()
+            cache.set(f"user:{user_id}", v)
+        else:
+            return None
+    return v

@@ -22,10 +22,10 @@ def login():
     user = User.query.filter_by(username=data["username"]).one_or_none()
 
     if user == None:
-        return jsonify({"error_code": "wrong_credential", "data": "username"}), 401
+        return jsonify({"error_code": "wrong_credential", "data": "username", "message": "Tên người dùng không đúng"}), 401
     else:
         if not user.check_password(data["password"]):
-            return jsonify({"error_code": "wrong_credential", "data": "password"}), 401
+            return jsonify({"error_code": "wrong_credential", "data": "password", "message": "Mật khẩu không đúng"}), 401
         return handle_login(user)
 
 class RegisterRequest(BaseModel):
