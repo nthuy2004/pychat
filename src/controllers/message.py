@@ -69,6 +69,11 @@ def send_message(chat_id):
     if len(data['attachments']) == 0 and len(data["content"]) == 0:
         return jsonify({"error_code": "validate_error", "message": "?????????????"}), 400
 
+    c = Chat.get(id=chat_id)
+
+    if c is None:
+        return jsonify({"error_code": "not_found", "message": "Đoạn chat không tồn tại, có thể đã bị xoá"}), 404
+
     ref_chatid = data["message_ref"]["chat_id"]
     ref_mid = data["message_ref"]["message_id"]
 

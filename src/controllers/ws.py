@@ -11,7 +11,6 @@ def broadcast_to_chat(chat_id, event, data):
     user_ids = get_chat_members(chat_id)
     for uid in user_ids:
         sockets = user_ws.get(uid.id, [])
-        print(sockets, uid.to_json())
         for ws in sockets:
             try:
                 ws.send(json.dumps({

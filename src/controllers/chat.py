@@ -1,6 +1,6 @@
 from flask import jsonify, request
 from utils import require_login, get_user_from_jwt, generate_chatid, timestamp, handle_exceptions
-from sqlalchemy import text
+from sqlalchemy import text, func
 
 from models.chat import ChatRelationship, Chat
 from models.user import User
@@ -12,8 +12,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import aliased
 from sqlalchemy import select, and_, desc
 
-from models.message import Message, get_message_by_id, get_attachment_by_msgid
+from models.message import Message, MessageType, get_message_by_id, get_attachment_by_msgid
 from models.user import User, get_user_by_id
+
+from utils import generate_messageid
 
 def get_message(chat_id, message_id):
     m = get_message_by_id(chat_id, message_id)
@@ -106,13 +108,25 @@ def create_group():
             ChatRelationship(chat_id=chat.id, uid=u.id, role=ChatRole.ROLE_NORMAL, time=timestamp()).save()
             recips.append(u.to_json())
 
+    msg = Message(
+        id=generate_messageid(),
+        chat_id=chat.id,
+        uid=uid,
+        type=MessageType.SYSTEM,
+        content="Đã tạo group", # ?
+    )
+
+    msg.save()
+
     return jsonify({
         "id": str(chat.id),
         "chat_id": str(chat.id),
         "name": chat.name,
         "owner": uid,
         "type": chat.type,
-        "last_message_id": None,
+        "last_message": None,
+        "last_message_id": str(msg.id),
+        "last_chat_id": str(chat.id),
         "recipients": recips
     }), 200
 
@@ -132,6 +146,7 @@ def create_private():
 
     return jsonify({
         "id": str(chat_id),
+        "chat_id": str(chat_id),
         "name": user.get_display_name(),
         "owner": None,
         "type": CHAT_1V1,
@@ -207,6 +222,33 @@ def delete_chat(chat_id):
     return jsonify({"message": "OK"}), 200
 
 @require_login
+def get_user_chat_state(chat_id):
+    current_uid = get_user_from_jwt()["id"]
+    chat = db.session.query(Chat).filter(Chat.id == chat_id).first()
+    if not chat:
+        return jsonify({"error": "Chat not found"}), 404
+
+    relationship = db.session.query(ChatRelationship).filter_by(
+        chat_id=chat_id, uid=current_uid
+    ).first()
+
+    total_members = db.session.query(func.count()).select_from(ChatRelationship).filter_by(
+        chat_id=chat_id
+    ).scalar()
+
+    c = chat.to_json()
+    if chat.type == 1: #private
+        r = get_1v1_recipient(chat_id)
+        if r:
+            c["recipient"] = r.to_json()
+
+    return jsonify({
+        "chat": c,
+        "role": relationship.role if relationship else None,
+        "total_members": total_members,
+    })
+
+@require_login
 def join_group(chat_id):
     uid = get_user_from_jwt()["id"]
 
@@ -231,6 +273,19 @@ def join_group(chat_id):
             return jsonify({"error_code": "forbidden", "message": "You have been banned from this group!"}), 403
         if rela.role == ChatRole.ROLE_PENDING:
             return jsonify({"error_code": "pending_join", "message": "Waiting for admin to approve your join request."}), 403
+
+    msg = Message(
+        id=generate_messageid(),
+        chat_id=chat.id,
+        uid=uid,
+        type=MessageType.SYSTEM,
+        content=f"<@{uid}> đã tham gia nhóm"
+    )
+
+    msg.save()
+    from controllers.ws import broadcast_to_chat
+    broadcast_to_chat(chat_id, "new_message", get_message(msg.chat_id, msg.id))
+
 
     return jsonify({
         "id": chat.id,
@@ -292,6 +347,18 @@ def leave_chat(chat_id):
         else:
             ddd.delete()
 
+    msg = Message(
+        id=generate_messageid(),
+        chat_id=chat.id,
+        uid=uid,
+        type=MessageType.SYSTEM,
+        content=f"<@{uid}> đã rời nhóm"
+    )
+
+    msg.save()
+    from controllers.ws import broadcast_to_chat
+    broadcast_to_chat(chat_id, "new_message", get_message(msg.chat_id, msg.id))
+
     return jsonify({"message": "OK"}), 200
 
 
@@ -302,6 +369,7 @@ class GetAllMessagesRequest(BaseModel):
     after: int = Field(default=None)
 
 
+@handle_exceptions
 @require_login
 def get_all_messages(chat_id):
     uid = get_user_from_jwt()["id"]
@@ -310,10 +378,10 @@ def get_all_messages(chat_id):
 
     check = ChatRelationship.get(chat_id=chat_id, uid=uid)
 
-    if check is None:
-        return jsonify({"error_code": "perm_denied", "message": "Join chưa mà xem ?"}), 403
+    # if check is None:
+    #     return jsonify({"error_code": "perm_denied", "message": "Join chưa mà xem ?"}), 403
     
-    if check.role < ChatRole.ROLE_NORMAL:
+    if check and check.role == ChatRole.ROLE_BAN:
         return jsonify({"error_code": "perm_denied", "message": "Permission denied!"}), 403
 
     stmt = select(
@@ -361,16 +429,55 @@ def delete_attachments(chat_id, file_id):
     from controllers.attachment import remove
     return remove(file_id)
 
-@require_login
 def get_chat_members(chat_id: int):
-    uid = get_user_from_jwt()["id"]
     members = (
         db.session.query(User)
         .join(ChatRelationship, User.id == ChatRelationship.uid)
         .filter(ChatRelationship.chat_id == chat_id,
-                ChatRelationship.role > ChatRole.ROLE_PENDING,
-                ChatRelationship.uid != uid
-                )
+                ChatRelationship.role > ChatRole.ROLE_PENDING
+         )
         .all()
     )
     return members
+
+
+@require_login
+def get_one_chat_info(chat_id: int):
+    uid = get_user_from_jwt()["id"]
+
+    with db.engine.begin() as conn:
+        sql = text("""
+            SELECT cr.chat_id, cr.role, c.type, c.owner, c.name, c.avatar, m.id as last_message_id, m.chat_id as last_chat_id
+            FROM chat_relationship cr
+            JOIN chat c ON c.id = cr.chat_id
+            LEFT JOIN (
+                SELECT chat_id, MAX(id) AS max_id
+                FROM messages
+                GROUP BY chat_id
+            ) latest ON latest.chat_id = cr.chat_id
+            LEFT JOIN messages m ON m.chat_id = latest.chat_id AND m.id = latest.max_id
+            WHERE cr.chat_id = :id AND c.id = :id AND cr.uid = :uid
+        """)
+
+        result = conn.execute(sql, {"id": chat_id, "uid": uid}).all()
+
+        results_as_dict = [u._asdict() for u in result]
+
+        if len(results_as_dict):
+            x = results_as_dict[0]
+            x["chat_id"] = str(x["chat_id"])    # cast to str bcz js browser can't handle bigint automatically
+            if x["type"] == CHAT_1V1:
+                recipient = get_1v1_recipient(x["chat_id"])
+                x["recipient"] = recipient.to_json()
+            if x["last_message_id"] and x["last_chat_id"]:
+                x["last_message"] = get_message(x["last_chat_id"], x["last_message_id"])
+                x["last_message_id"] = str(x["last_message_id"])
+                x["last_chat_id"] = str(x["last_chat_id"])
+            else:
+                x["last_message"] = None
+
+            return jsonify(x), 200
+
+        return jsonify({"error_code": "not_found", "message": "Invalid request"}), 404
+
+    return ""

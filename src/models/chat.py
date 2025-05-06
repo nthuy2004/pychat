@@ -1,6 +1,8 @@
 from database import Model
 from sqlalchemy.orm import Mapped, mapped_column
 
+from utils import snowflake_to_timestamp
+
 CHAT_1V1 = 1
 CHAT_GROUP = 2
 
@@ -32,3 +34,15 @@ class Chat(Model):
     avatar: Mapped[str] = mapped_column(default=None)
     rate_limit: Mapped[int] = mapped_column(default=0)
     pending_join: Mapped[bool] = mapped_column(default=False)
+
+    def to_json(self):
+        return {
+            "id": str(self.id),
+            "type": self.type,
+            "owner": self.owner,
+            "name": self.name,
+            "created_time": snowflake_to_timestamp(self.id),
+            "avatar": self.avatar,
+            "rate_limit": self.rate_limit,
+            "pending_join": self.pending_join,
+        }

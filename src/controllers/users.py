@@ -3,6 +3,8 @@ from utils import require_login, get_user_from_jwt, get_updatable_fields
 
 from models.user import User
 
+from sqlalchemy import or_
+
 allow_update_fields = get_updatable_fields(User, exclude_fields={"id", "created_at", "password", "username"})
 
 def get_uid(id : str):
@@ -41,3 +43,22 @@ def profile_patch(id):
         user.save()
 
         return jsonify({"data": user.to_json()}), 200
+
+
+
+def find_user():
+    q = request.args.get("q", "").strip()
+    if not q:
+        return jsonify([])
+    
+    users = User.query.filter(
+    or_(
+        User.username.ilike(f"%{q}%"),
+        User.display_name.ilike(f"%{q}%")
+    )
+    ).limit(10).all()
+        
+    return jsonify([
+        u.to_json()
+        for u in users
+    ])
