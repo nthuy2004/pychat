@@ -33,44 +33,47 @@ def reg_bp(app):
     api_bp(app)
 
 
-if __name__ == '__main__':
-    Globals.app = create_app()
-    sock = Sock(Globals.app)
+app = create_app()
+sock = Sock(app)
 
-    @sock.route("/ws")
-    def websocket_route(ws):
-        token = request.args.get("token")
-        uid = 0
+@sock.route("/ws")
+def websocket_route(ws):
+    token = request.args.get("token")
+    uid = 0
 
-        try:
-            uid = jwt_decode(token)["id"]
-            if not uid:
-                ws.send(json.dumps({"error_code": "ws_error", "message": "Invalid token"}))
-                ws.close()
-                return
-        except Exception as e:
-            ws.send(json.dumps({"error_code": "ws_error", "message": f"Invalid token {e}"}))
+    try:
+        uid = jwt_decode(token)["id"]
+        if not uid:
+            ws.send(json.dumps({"error_code": "ws_error", "message": "Invalid token"}))
             ws.close()
             return
-        
-        print(f"[WS] User {uid} connected.")
-        user_ws.setdefault(uid, []).append(ws)
+    except Exception as e:
+        ws.send(json.dumps({"error_code": "ws_error", "message": f"Invalid token {e}"}))
+        ws.close()
+        return
+    
+    print(f"[WS] User {uid} connected.")
+    user_ws.setdefault(uid, []).append(ws)
 
-        try:
-            while True:
-                msg = ws.receive()
-                if msg is None:
-                    break
-                print(f"[WS] Received from {uid}: {msg}")
-        except Exception as e:
-            print(f"[WS] Error for user {uid}: {e}")
-        finally:
-            user_ws[uid].remove(ws)
-            print(f"[WS] User {uid} disconnected.")
+    try:
+        while True:
+            msg = ws.receive()
+            if msg is None:
+                break
+            print(f"[WS] Received from {uid}: {msg}")
+    except Exception as e:
+        print(f"[WS] Error for user {uid}: {e}")
+    finally:
+        user_ws[uid].remove(ws)
+        print(f"[WS] User {uid} disconnected.")
 
-    @Globals.app.after_request
-    def add_header(response):
-        if request.method.lower() == 'options':
-            return Response()
-        return response
+@app.after_request
+def add_header(response):
+    if request.method.lower() == 'options':
+        return Response()
+    return response
+
+Globals.app = app
+
+if __name__ == '__main__':
     Globals.app.run(debug=True)
