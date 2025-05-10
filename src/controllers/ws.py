@@ -20,4 +20,15 @@ def broadcast_to_chat(chat_id, event, data):
                 }))
             except Exception:
                 continue
-    pass
+
+def broadcast_to_one(uid, chat_id, event, data):
+    sockets = user_ws.get(uid, [])
+    for ws in sockets:
+        try:
+            ws.send(json.dumps({
+                "event": event,
+                "chat_id": str(chat_id),
+                "data": data
+            }))
+        except Exception:
+            continue

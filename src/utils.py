@@ -9,7 +9,9 @@ import jwt
 import time
 import threading
 import math
+import re
 
+SNOWFLAKE_USER = 0
 SNOWFLAKE_CHAT = 1
 SNOWFLAKE_MESSAGE = 2
 SNOWFLAKE_ATTACHMENT = 3
@@ -134,6 +136,9 @@ def generate_chatid():
     chat = SnowflakeGenerator(type_code=SNOWFLAKE_CHAT)
     return chat.generate_id()
 
+def generate_userid():
+    user = SnowflakeGenerator(type_code=SNOWFLAKE_USER)
+    return user.generate_id()
 
 def generate_messageid():
     msg = SnowflakeGenerator(type_code=SNOWFLAKE_MESSAGE)
@@ -172,3 +177,9 @@ def snowflake_to_timestamp(snowflake_id: int, ms=False, epoch: int = 17000000000
     actual_timestamp_ms = timestamp + epoch
 
     return actual_timestamp_ms if ms else math.floor(actual_timestamp_ms / 1000)
+
+def extract_user_ids(content):
+    return [int(match) for match in re.findall(r'<@(\d+)>', content)]
+
+def clean_mentions(content):
+    return re.sub(r'<@\d+>', '', content)

@@ -481,3 +481,12 @@ def get_one_chat_info(chat_id: int):
         return jsonify({"error_code": "not_found", "message": "Invalid request"}), 404
 
     return ""
+
+def get_list_bot():
+    choose = (
+        db.session.query(User)
+        .filter(User.type == 1)
+        .all()
+    )
+
+    return jsonify([i.to_json() for i in choose]), 200

@@ -8,16 +8,17 @@ from routes.api import reg_bp as api_bp
 from flask_sock import Sock
 
 from utils import jwt_decode
+from globals import Globals
 from controllers.ws import user_ws
 import json
 
 def create_app(config=Config):
-    app = Flask(__name__)
-    cors = CORS(app)
-    app.config.from_object(config)
-    reg_ext(app)
-    reg_bp(app)
-    return app
+    _app = Flask(__name__)
+    CORS(_app)
+    _app.config.from_object(config)
+    reg_ext(_app)
+    reg_bp(_app)
+    return _app
 
 
 def reg_ext(app):
@@ -32,14 +33,9 @@ def reg_bp(app):
     api_bp(app)
 
 
-
-
-
-
-
 if __name__ == '__main__':
-    app = create_app()
-    sock = Sock(app)
+    Globals.app = create_app()
+    sock = Sock(Globals.app)
 
     @sock.route("/ws")
     def websocket_route(ws):
@@ -72,9 +68,9 @@ if __name__ == '__main__':
             user_ws[uid].remove(ws)
             print(f"[WS] User {uid} disconnected.")
 
-    @app.after_request
+    @Globals.app.after_request
     def add_header(response):
         if request.method.lower() == 'options':
             return Response()
         return response
-    app.run(debug=True)
+    Globals.app.run(debug=True)

@@ -1,6 +1,6 @@
 from flask import Flask, Blueprint
 
-from controllers.chat import get_all_chat, get_one_chat_info, create_group, create_private, get_user_chat_state, delete_chat, leave_chat, get_all_messages, join_group, upload_attachments, delete_attachments
+from controllers.chat import get_list_bot, get_all_chat, get_one_chat_info, create_group, create_private, get_user_chat_state, delete_chat, leave_chat, get_all_messages, join_group, upload_attachments, delete_attachments
 from controllers.message import send_message, edit_message, delete_message
 def reg_bp():
     bp = Blueprint("chat_api", __name__, url_prefix="/chat")
@@ -21,4 +21,7 @@ def reg_bp():
 
     bp.add_url_rule("/<int:chat_id>/attachments", view_func=upload_attachments, methods=["POST"])
     bp.add_url_rule("/<int:chat_id>/attachments/<string:file_id>", view_func=delete_attachments, methods=["DELETE"])
+
+    bp.add_url_rule("/list_bot", view_func=get_list_bot, methods=["GET"])
+
     return bp

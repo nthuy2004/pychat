@@ -12,17 +12,22 @@ from database.redis import cache
 
 from extensions import cache
 
+class UserType:
+    NORMAL = 0
+    BOT = 1
 class User(Model):
     __tablename__ = "users"
-    id : Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    id : Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str]
     display_name: Mapped[str]
     avatar: Mapped[str]
+    bio: Mapped[str] = mapped_column(default=None)
     email: Mapped[str]
     phone: Mapped[str]
     color: Mapped[str]
     password: Mapped[str]
     created_at: Mapped[int]
+    type: Mapped[int] = mapped_column(default=UserType.NORMAL)
 
     def create_jwt(self):
         return jwt_encode({"id": self.id, "username": self.username})
@@ -39,10 +44,12 @@ class User(Model):
             'username'   : self.username,
             'display_name'  : self.display_name,
             'avatar'     : self.avatar,
+            'bio'       : self.bio,
             'email'     : self.email,
             'phone'     : self.phone,
             'color'     : self.color,
             'created_at': self.created_at,
+            'type': self.type
        }
 
 

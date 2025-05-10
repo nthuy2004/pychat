@@ -1,7 +1,7 @@
 from flask import request, jsonify
 from pydantic import BaseModel, EmailStr, Field
 from models.user import User
-from utils import timestamp, handle_exceptions, require_login, get_user_from_jwt
+from utils import timestamp, handle_exceptions, require_login, get_user_from_jwt, generate_userid
 from extensions import bcrypt, db, faker
 from sqlalchemy import or_
 
@@ -43,6 +43,7 @@ def register():
     enc_password = bcrypt.generate_password_hash(password=data['password']).decode("UTF-8")
 
     user = User(**data)
+    user.id = generate_userid()
     user.password = enc_password
     user.created_at = timestamp()
     user.color = faker.hex_color()

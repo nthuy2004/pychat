@@ -32,4 +32,8 @@ class Config:
     OSS_REGION = os.getenv("OSS_REGION", "")
     OSS_BUCKET_NAME = os.getenv("OSS_BUCKET_NAME", "")
 
+
+    OPEN_AI_API = os.getenv("OPEN_AI_API", "")
+    GEMINI_API = os.getenv("GEMINI_API", "")
+
     CORS_HEADERS = "Content-Type"

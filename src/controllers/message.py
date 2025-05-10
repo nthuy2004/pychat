@@ -11,6 +11,9 @@ from controllers.ws import broadcast_to_chat
 from utils import handle_exceptions, generate_messageid, generate_attachmentid, require_login, get_user_from_jwt
 
 from extensions import cache
+import threading
+
+from controllers.bot import handle_bots
 
 @require_login
 def edit_message(chat_id, message_id):
@@ -123,5 +126,7 @@ def send_message(chat_id):
         js["user"] = user
 
     broadcast_to_chat(chat_id, "new_message", js)
+
+    threading.Thread(target=handle_bots, args=(chat_id, js, user)).start()
 
     return jsonify(js), 200
